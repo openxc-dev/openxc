@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openxc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openxc}
+      POSTGRES_DB: ${POSTGRES_DB:-openxc}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openxc} -d ${POSTGRES_DB:-openxc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openxc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openxc}
+      POSTGRES_DB: ${POSTGRES_DB:-openxc}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    ports:
+      # Kept exposed directly (in addition to nginx) for the interactive API
+      # docs at /docs, which nginx does not proxy, and for external devices
+      # that want to bypass the frontend/nginx layer entirely.
+      - "${BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      INTERNAL_API_URL: http://backend:8000
+      PORT: 2000
+      # Passcode required to unlock the operator dashboard (meet management).
+      # The public results pages and the API itself are not gated by this.
+      DASHBOARD_PASSCODE: ${DASHBOARD_PASSCODE:-1234}
+
+  nginx:
+    build: ./nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${HTTP_PORT:-80}:80"
+
+  # Optional hardware integration: watches a host-written trigger file for
+  # starting-gun events and posts them to the starts API. Needs a host
+  # trigger file to do anything useful, so it's excluded from a plain
+  # `docker compose up` — see starter/README.md.
+  starter:
+    build: ./starter
+    restart: unless-stopped
+    profiles: ["starter"]
+    depends_on:
+      - backend
+    environment:
+      API_BASE_URL: http://backend:8000
+      # If unset (the default), posts go to /api/starts — the meet marked
+      # "active" in the dashboard sidebar — rather than one hardcoded here.
+      MEET_ID: ${STARTER_MEET_ID:-}
+      TRIGGER_FILE: /host-var-run/trigger_events
+      LABEL: Starting Gun
+      POLL_INTERVAL_SECONDS: 5
+    volumes:
+      # The containing directory is mounted, not the file itself. A
+      # single-file bind mount pins to that file's inode at mount time; if
+      # the host writer ever replaces the file via the standard atomic
+      # write pattern (temp file + rename, to avoid a reader seeing a
+      # torn write), the container would keep seeing the original,
+      # now-stale inode forever. See starter/README.md.
+      - /var/run:/host-var-run:ro
+
+volumes:
+  postgres_data:

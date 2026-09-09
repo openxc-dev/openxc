@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenXC — Cross Country Race Timing</title>
+<meta name="description" content="OpenXC is a self-hosted, open source cross country race timing system: meets, rosters, concurrent live timing, RFID acquisition, starting-gun hardware integration, and public results — one Docker Compose stack, from a laptop to a Raspberry Pi.">
+<meta property="og:title" content="OpenXC — Cross Country Race Timing">
+<meta property="og:description" content="Open source, self-hosted race timing for cross country: live timing, RFID acquisition, and public results. Runs anywhere with Docker Compose.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://openxc-dev.github.io/openxc/">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%2322c55e%22/></svg>">
+<style>
+  :root{
+    --bg:#0b0d12;
+    --bg-elevated:#12151c;
+    --bg-card:#161a23;
+    --bg-hover:#1e2330;
+    --border:#262c3a;
+    --text:#e6e9ef;
+    --text-muted:#8b93a7;
+    --text-faint:#5b6478;
+    --accent:#22c55e;
+    --accent-dim:#16a34a;
+    --accent-soft:rgba(34,197,94,.12);
+    --blue:#3b82f6;
+    --amber:#f59e0b;
+    --red:#ef4444;
+    --radius:10px;
+    --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
+    --max:1120px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  img{max-width:100%}
+  a{color:inherit}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+  section{position:relative}
+
+  /* ---------- Nav ---------- */
+  header.nav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(11,13,18,.75);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+  }
+  .nav-inner{
+    max-width:var(--max);margin:0 auto;padding:14px 24px;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+  }
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:16px;letter-spacing:-.01em;text-decoration:none}
+  .brand-dot{width:11px;height:11px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+  .nav-links{display:flex;align-items:center;gap:28px;font-size:14px;color:var(--text-muted)}
+  .nav-links a{text-decoration:none;color:var(--text-muted);transition:color .15s}
+  .nav-links a:hover{color:var(--text)}
+  .nav-cta{display:flex;align-items:center;gap:10px}
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:10px 18px;border-radius:8px;
+    font-size:14px;font-weight:600;text-decoration:none;
+    border:1px solid var(--border);color:var(--text);
+    background:var(--bg-card);
+    transition:transform .12s ease, border-color .15s, background .15s;
+  }
+  .btn:hover{border-color:#3a4256;background:var(--bg-hover);transform:translateY(-1px)}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#06210f}
+  .btn-primary:hover{background:var(--accent-dim);border-color:var(--accent-dim)}
+  .btn-sm{padding:7px 14px;font-size:13px}
+
+  /* ---------- Hero ---------- */
+  .hero{
+    padding:96px 0 84px;
+    background:
+      radial-gradient(650px 400px at 15% -10%, rgba(34,197,94,.16), transparent 60%),
+      radial-gradient(500px 360px at 100% 0%, rgba(59,130,246,.10), transparent 60%);
+    border-bottom:1px solid var(--border);
+    overflow:hidden;
+  }
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 12px;border-radius:999px;
+    background:var(--accent-soft);border:1px solid rgba(34,197,94,.35);
+    color:#4ade80;font-size:12.5px;font-weight:600;letter-spacing:.02em;
+    margin-bottom:22px;
+  }
+  .hero h1{
+    font-size:clamp(34px,5.4vw,58px);
+    line-height:1.08;letter-spacing:-.02em;
+    margin:0 0 20px;max-width:820px;
+  }
+  .hero h1 .grad{
+    background:linear-gradient(90deg,#4ade80,#22c55e 55%,#3b82f6);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero p.lead{
+    font-size:18px;color:var(--text-muted);max-width:620px;margin:0 0 36px;
+  }
+  .hero-ctas{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:56px}
+  .hero-stats{display:flex;flex-wrap:wrap;gap:36px;color:var(--text-muted);font-size:13.5px}
+  .hero-stats b{display:block;color:var(--text);font-size:22px;font-weight:700;margin-bottom:2px}
+
+  /* ---------- Section headers ---------- */
+  .section{padding:88px 0;border-bottom:1px solid var(--border)}
+  .section-head{max-width:640px;margin:0 0 48px}
+  .kicker{color:var(--accent);font-size:12.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+  .section-head h2{font-size:clamp(26px,3.4vw,36px);letter-spacing:-.01em;margin:0 0 14px}
+  .section-head p{color:var(--text-muted);font-size:16px;margin:0}
+
+  /* ---------- Open source strip ---------- */
+  .oss-strip{
+    background:var(--bg-elevated);border-bottom:1px solid var(--border);
+    padding:22px 0;
+  }
+  .oss-inner{
+    display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  }
+  .oss-text{display:flex;align-items:center;gap:12px;font-size:14.5px;color:var(--text-muted)}
+  .oss-text strong{color:var(--text)}
+  .oss-text svg{flex-shrink:0;color:var(--accent)}
+
+  /* ---------- Feature grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .card{
+    background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);
+    padding:24px;transition:border-color .15s, transform .15s;
+  }
+  .card:hover{border-color:#3a4256;transform:translateY(-2px)}
+  .card-icon{
+    width:38px;height:38px;border-radius:9px;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--accent-soft);color:var(--accent);margin-bottom:16px;
+  }
+  .card h3{font-size:15.5px;margin:0 0 8px;letter-spacing:-.005em}
+  .card p{font-size:13.5px;color:var(--text-muted);margin:0;line-height:1.55}
+
+  /* ---------- Architecture ---------- */
+  .arch{
+    display:flex;flex-direction:column;gap:14px;
+    background:var(--bg-card);border:1px solid var(--border);border-radius:14px;
+    padding:32px;
+  }
+  .arch-row{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap;justify-content:center}
+  .arch-box{
+    flex:1;min-width:150px;
+    background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;
+    padding:16px;text-align:center;
+  }
+  .arch-box.accent{border-color:rgba(34,197,94,.4);background:var(--accent-soft)}
+  .arch-box .t{font-weight:700;font-size:14px;margin-bottom:4px}
+  .arch-box .s{font-size:12px;color:var(--text-faint)}
+  .arch-arrow{display:flex;align-items:center;justify-content:center;color:var(--text-faint);font-size:18px;padding:0 2px}
+  .arch-divider{text-align:center;color:var(--text-faint);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin:4px 0}
+
+  /* ---------- Quick start ---------- */
+  .terminal{
+    background:#0d1017;border:1px solid var(--border);border-radius:12px;
+    overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .terminal-bar{
+    display:flex;align-items:center;gap:7px;
+    padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-elevated);
+  }
+  .terminal-dot{width:11px;height:11px;border-radius:50%}
+  .terminal pre{
+    margin:0;padding:24px;font-family:var(--mono);font-size:13.5px;line-height:1.9;
+    color:#c9d1d9;overflow-x:auto;
+  }
+  .terminal .c1{color:#7ee787}
+  .terminal .c2{color:#8b949e}
+  .qs-note{color:var(--text-muted);font-size:14px;margin-top:18px;text-align:center}
+  .qs-note a{color:#4ade80;text-decoration:none;font-weight:600}
+  .qs-note a:hover{text-decoration:underline}
+
+  /* ---------- CTA / footer ---------- */
+  .cta{
+    padding:90px 0;text-align:center;
+    background:radial-gradient(600px 300px at 50% 0%, rgba(34,197,94,.12), transparent 65%);
+  }
+  .cta h2{font-size:clamp(26px,3.6vw,38px);letter-spacing:-.01em;margin:0 0 16px}
+  .cta p{color:var(--text-muted);font-size:16px;max-width:520px;margin:0 auto 32px}
+  .cta-ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+  footer{padding:40px 0;color:var(--text-faint);font-size:13px}
+  .footer-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+  .footer-links{display:flex;gap:22px}
+  .footer-links a{color:var(--text-muted);text-decoration:none}
+  .footer-links a:hover{color:var(--text)}
+
+  @media (max-width:860px){
+    .nav-links{display:none}
+    .grid{grid-template-columns:repeat(2,1fr)}
+    .arch-row{flex-direction:column}
+    .arch-arrow{transform:rotate(90deg)}
+  }
+  @media (max-width:520px){
+    .grid{grid-template-columns:1fr}
+    .hero{padding:72px 0 56px}
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="#" class="brand"><span class="brand-dot"></span>OpenXC</a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#quick-start">Get Started</a>
+      <a href="https://github.com/openxc-dev/openxc#readme">Docs</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-sm" href="https://github.com/openxc-dev/openxc" target="_blank" rel="noreferrer">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      100% open source · GPL-3.0 · self-hosted
+    </div>
+    <h1>Cross country race timing, <span class="grad">without the spreadsheet chaos.</span></h1>
+    <p class="lead">
+      OpenXC is a self-hosted app for running an entire cross country meet: rosters,
+      concurrent live timing, RFID tag acquisition, starting-gun hardware integration,
+      and public results — all in one Docker Compose stack that runs on a laptop or
+      a Raspberry Pi at the course.
+    </p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="https://github.com/openxc-dev/openxc" target="_blank" rel="noreferrer">
+        View on GitHub ↗
+      </a>
+      <a class="btn" href="#quick-start">Get started in 3 commands</a>
+    </div>
+    <div class="hero-stats">
+      <div><b>Docker Compose</b>one command to run</div>
+      <div><b>FastAPI + SvelteKit</b>modern, fully typed stack</div>
+      <div><b>LLRP + hardware</b>RFID readers &amp; starting guns</div>
+    </div>
+  </div>
+</section>
+
+<div class="oss-strip">
+  <div class="wrap oss-inner">
+    <div class="oss-text">
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span><strong>OpenXC is fully open source.</strong> Every line — backend, frontend, hardware integrations — lives in the public repo. Fork it, self-host it, send a PR.</span>
+    </div>
+    <a class="btn btn-sm" href="https://github.com/openxc-dev/openxc" target="_blank" rel="noreferrer">github.com/openxc-dev/openxc ↗</a>
+  </div>
+</div>
+
+<section class="section" id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Features</div>
+      <h2>Everything a meet needs, in one app.</h2>
+      <p>Built from real race-day requirements — not a generic form builder.</p>
+    </div>
+    <div class="grid">
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <h3>Meets, Teams &amp; Rosters</h3>
+        <p>Create meets with readable slug URLs, invite teams, and bulk-import full rosters with automatic team/race fallback.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+        <h3>Concurrent Live Timing</h3>
+        <p>A single bib-driven entry stream resolves each finish to the right race automatically — time several races at once from one chute.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></div>
+        <h3>Live Public Results</h3>
+        <p>Auto-refreshing team scores and individual results — meet-wide and per-race — shareable with no login required.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>
+        <h3>Starting-Gun Integration</h3>
+        <p>A lightweight hardware module watches a host trigger file and posts monotonic-clock-corrected starts the instant the gun fires.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <h3>RFID (LLRP) Reader Acquisition</h3>
+        <p>Connect Impinj or Zebra/Motorola readers, see live per-antenna connection status, and stream tag reads in real time.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></div>
+        <h3>Self-Hosted, Anywhere</h3>
+        <p>One <code>docker compose up</code>. Run it on a laptop for a dry run, or on a Raspberry Pi at the actual course.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h3>Operator Passcode</h3>
+        <p>A lightweight passcode keeps casual visitors out of meet management, while public results stay open to everyone.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg></div>
+        <h3>Modern, Typed Stack</h3>
+        <p>FastAPI + SQLAlchemy + Alembic on the backend, SvelteKit on the frontend, PostgreSQL underneath — fully containerized.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section class="section" id="architecture">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Architecture</div>
+      <h2>A small, honest stack.</h2>
+      <p>Five containers, one <code>docker-compose.yml</code>. No external services required.</p>
+    </div>
+
+    <div class="arch">
+      <div class="arch-row">
+        <div class="arch-box accent"><div class="t">Browser</div><div class="s">operator &amp; spectators</div></div>
+        <div class="arch-arrow">→</div>
+        <div class="arch-box accent"><div class="t">nginx</div><div class="s">reverse proxy, port 80</div></div>
+      </div>
+      <div class="arch-divider">routes / and /api</div>
+      <div class="arch-row">
+        <div class="arch-box"><div class="t">SvelteKit frontend</div><div class="s">dashboard + public results</div></div>
+        <div class="arch-box"><div class="t">FastAPI backend</div><div class="s">REST API, Alembic migrations</div></div>
+      </div>
+      <div class="arch-arrow" style="transform:none">↓</div>
+      <div class="arch-row">
+        <div class="arch-box"><div class="t">PostgreSQL</div><div class="s">durable storage</div></div>
+        <div class="arch-box"><div class="t">Starter module</div><div class="s">optional — starting-gun trigger</div></div>
+        <div class="arch-box"><div class="t">LLRP readers</div><div class="s">optional — RFID acquisition</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="quick-start" style="border-bottom:none">
+  <div class="wrap">
+    <div class="section-head" style="margin-left:auto;margin-right:auto;text-align:center">
+      <div class="kicker" style="text-align:center">Get started</div>
+      <h2>Running in under a minute.</h2>
+      <p style="margin:0 auto">No signup, no cloud account, no external dependencies.</p>
+    </div>
+
+    <div class="terminal" style="max-width:640px;margin:0 auto">
+      <div class="terminal-bar">
+        <span class="terminal-dot" style="background:#ff5f56"></span>
+        <span class="terminal-dot" style="background:#ffbd2e"></span>
+        <span class="terminal-dot" style="background:#27c93f"></span>
+      </div>
+      <pre><span class="c2"># clone and configure</span>
+<span class="c1">git</span> clone https://github.com/openxc-dev/openxc.git
+<span class="c1">cd</span> openxc
+<span class="c1">cp</span> .env.example .env
+
+<span class="c2"># build and run the whole stack</span>
+<span class="c1">docker</span> compose up --build</pre>
+    </div>
+    <p class="qs-note">Then open <strong>http://localhost</strong> — default passcode <code>1234</code>, a demo meet is seeded automatically. Full setup notes in the <a href="https://github.com/openxc-dev/openxc#readme" target="_blank" rel="noreferrer">README ↗</a>.</p>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Free, open, and yours to run.</h2>
+    <p>No hosted service, no subscription — OpenXC lives entirely on hardware you control.</p>
+    <div class="cta-ctas">
+      <a class="btn btn-primary" href="https://github.com/openxc-dev/openxc" target="_blank" rel="noreferrer">Star it on GitHub ↗</a>
+      <a class="btn" href="https://github.com/openxc-dev/openxc/issues" target="_blank" rel="noreferrer">Report an issue</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="brand" style="font-size:14px"><span class="brand-dot" style="width:8px;height:8px"></span>OpenXC</div>
+    <div class="footer-links">
+      <a href="https://github.com/openxc-dev/openxc" target="_blank" rel="noreferrer">GitHub</a>
+      <a href="https://github.com/openxc-dev/openxc/issues" target="_blank" rel="noreferrer">Issues</a>
+      <a href="https://github.com/openxc-dev/openxc#readme" target="_blank" rel="noreferrer">Docs</a>
+      <a href="https://github.com/openxc-dev/openxc/blob/main/LICENSE" target="_blank" rel="noreferrer">License</a>
+    </div>
+    <div>GPL-3.0 licensed.</div>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('.nav-links a[href^="#"]').forEach(a=>{
+    a.addEventListener('click', e=>{
+      const el = document.querySelector(a.getAttribute('href'));
+      if(el){ e.preventDefault(); el.scrollIntoView({behavior:'smooth', block:'start'}); }
+    });
+  });
+</script>
+</body>
+</html>
