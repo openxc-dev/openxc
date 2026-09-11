@@ -65,12 +65,28 @@ services:
       # The public results pages and the API itself are not gated by this.
       DASHBOARD_PASSCODE: ${DASHBOARD_PASSCODE:-1234}
 
+  # Thin HTTP-to-pub/sub bridge (see events/server.go): GET /events/<channel>
+  # streams that Valkey channel's messages as Server-Sent Events. No web
+  # framework, just asyncio + the redis client — sits behind nginx, not
+  # published directly.
+  events:
+    build: ./events
+    restart: unless-stopped
+    depends_on:
+      valkey:
+        condition: service_healthy
+    environment:
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
+      PORT: 8001
+
   nginx:
     build: ./nginx
     restart: unless-stopped
     depends_on:
       - backend
       - frontend
+      - events
     ports:
       - "${HTTP_PORT:-80}:80"
 
@@ -84,6 +100,7 @@ services:
     profiles: ["starter"]
     depends_on:
       - backend
+      - valkey
     environment:
       API_BASE_URL: http://backend:8000
       # If unset (the default), posts go to /api/starts — the meet marked
@@ -92,6 +109,8 @@ services:
       TRIGGER_FILE: /host-var-run/trigger_events
       LABEL: Starting Gun
       POLL_INTERVAL_SECONDS: 5
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
     volumes:
       # The containing directory is mounted, not the file itself. A
       # single-file bind mount pins to that file's inode at mount time; if

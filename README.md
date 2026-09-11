@@ -7,6 +7,7 @@ day, and publish team scoring + individual results to a public results page.
 - **Backend**: Python + FastAPI, SQLAlchemy, Alembic migrations
 - **Frontend**: SvelteKit dashboard
 - **Database**: PostgreSQL
+- **Tag stream / events / starter**: Valkey (Redis-compatible) + small Go services
 - **Deployment**: Docker Compose (runs equally well on a laptop or a
   Raspberry Pi / other ARM64 board)
 
@@ -55,18 +56,20 @@ results page ("Race page ↗" next to each race).
 ```
 docker-compose.yml
 ├─ postgres   — durable storage, named volume `postgres_data`
-├─ valkey     — tag-read stream (port 6379, published for diagnostics)
+├─ valkey     — tag-read stream + pub/sub (port 6379, published for diagnostics)
 ├─ backend    — FastAPI REST API (port 8000, also reachable directly), runs Alembic migrations on boot
 ├─ frontend   — SvelteKit app (internal only), server-side proxies /api/* to backend
-├─ nginx      — reverse proxy (port 80): / → frontend, /api → backend
+├─ events     — thin SSE bridge onto Valkey pub/sub (internal only, see events/server.go)
+├─ nginx      — reverse proxy (port 80): / → frontend, /api → backend, /events → events
 └─ starter    — optional; watches a host trigger file and posts start events (see starter/README.md)
 ```
 
 nginx is the app's main entry point: it listens on port 80 and routes `/`
-to the frontend and `/api` to the backend (see `nginx/default.conf`), so the
-browser only ever needs one origin and one port. This means the app works
-from any hostname/IP without rebuilding — handy when moving the same images
-between a laptop and a Pi, or between wifi networks on race day.
+to the frontend, `/api` to the backend, and `/events` to the SSE bridge (see
+`nginx/default.conf`), so the browser only ever needs one origin and one
+port. This means the app works from any hostname/IP without rebuilding —
+handy when moving the same images between a laptop and a Pi, or between
+wifi networks on race day.
 
 The frontend also proxies `/api/*` to the backend itself (see
 `frontend/src/hooks.server.js`), which is what makes `npm run dev` outside
@@ -194,6 +197,7 @@ is running. Highlights:
 | Results | `GET /api/races/{race_id}/results`, `GET /api/meets/{meet_id}/races/{race_slug}/results` (public), `GET /api/meets/{meet_id}/results` (public) |
 | Readers | `GET/POST /api/readers`, `GET /api/readers/{label}`, `POST /api/readers/{label}/connect`\|`disconnect`\|`start`\|`stop`, `GET /api/readers/{label}/tags` — see [LLRP readers](#llrp-readers) |
 | Tags | `GET /api/tags` (optional `?seconds=`) — all readers' tag reads from the Valkey stream, see [Tag read stream](#tag-read-stream-valkey) |
+| Events | `GET /events/{channel}` — live Server-Sent Events for any Valkey pub/sub channel, see [Live events over HTTP](#live-events-over-http-sse) |
 
 `POST /api/meets/{meet_id}/finishes` is deliberately not race-scoped: pass a
 `bib` and the race is resolved from that athlete's roster entry, so one
@@ -316,10 +320,18 @@ API). The LLRP session itself is handled by
 
 ### Tag read stream (Valkey)
 
-Every tag read is also `XADD`ed to a [Valkey](https://valkey.io/) stream
-named `livestream` (`backend/app/tag_stream.py`) — a durable, external record
-of raw reads, independent of the in-memory buffer above and of any
-particular backend process's lifetime. Each stream entry has these fields:
+Every tag read is `XADD`ed to a [Valkey](https://valkey.io/) stream named
+`livestream` (`backend/app/tag_stream.py`) — a durable, external record of
+raw reads, independent of the in-memory buffer above and of any particular
+backend process's lifetime — and also `PUBLISH`ed (as JSON) to the
+`tag_read` pub/sub channel, for a consumer that wants to react to reads as
+they happen instead of polling the stream:
+
+```bash
+valkey-cli -h localhost SUBSCRIBE tag_read
+```
+
+Both carry the same fields per read:
 
 | Field | Description |
 |---|---|
@@ -331,6 +343,13 @@ particular backend process's lifetime. Each stream entry has these fields:
 | `timestamp` | The same moment as `time`, as Unix epoch seconds |
 | `label` | The reader's label |
 | `reader_id` | The reader's serial number, if known (blank otherwise — see [LLRP readers](#llrp-readers)'s note on the vendor web page lookup) |
+
+`livestream` isn't tag-reads-only, despite the name of this section — the
+[starter module](starter/README.md) mirrors each start onto the same
+stream (`event_type: "start"`, with `label`/`meet_id`/`time`/`timestamp`
+fields but none of the tag-specific ones above) and publishes it to its own
+`start` channel, so a consumer scanning the whole stream sees every live
+event this app produces, told apart by `event_type`.
 
 This is meant for diagnostics and for other tools/processes to consume
 independently of this app — `valkey` is published on the host specifically
@@ -345,19 +364,55 @@ valkey-cli -h localhost XREAD COUNT 10 BLOCK 0 STREAMS livestream '$'   # follow
 recent time window rather than the whole stream, spanning every reader (not
 one at a time like `GET /api/readers/{label}/tags`). Defaults to the last 5
 seconds; pass `?seconds=` to widen or narrow the window, e.g.
-`GET /api/tags?seconds=30`. This is what the Readers page itself now polls
-for its "Tag reads" list and for lighting up each reader's antenna badges
-live (an antenna badge lights when that reader+antenna produced a read in
-roughly the last second; with **Antenna Test Mode** toggled on, a badge
-stays lit once triggered — across every reader — until the toggle is turned
-back off, so an operator can walk a tag past each antenna and check them
-all afterward instead of catching each one lighting up in real time).
+`GET /api/tags?seconds=30`. This is a snapshot/backfill API — good for "what
+happened in the last N seconds" from a script or curl — rather than
+something to poll for a live view; see below for that.
 
-Writing to the stream is best-effort: if Valkey is unreachable, tag reading
-itself is unaffected (it's logged as a warning) — but note this means the
-Readers page's live tag list/antenna lighting *does* depend on Valkey being
-up, unlike the per-reader in-memory buffer (`GET /api/readers/{label}/tags`),
-which doesn't.
+Both the `XADD` and the `PUBLISH` are best-effort and independent of each
+other: if Valkey is unreachable, or only one of the two calls fails, tag
+reading itself is unaffected (each failure is logged as a warning on its
+own) — but note this means both `GET /api/tags` and the live events below
+depend on Valkey being up, unlike the per-reader in-memory buffer
+(`GET /api/readers/{label}/tags`), which doesn't.
+
+### Live events over HTTP (SSE)
+
+`GET /events/<channel>` streams a Valkey pub/sub channel to any HTTP client
+as [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
+— e.g. `/events/tag_read` streams the same messages the `tag_read` channel
+above carries, live, with no polling involved. It's served by its own
+container (`events/server.go`), a small Go binary built without a web
+framework (just `net/http` + `go-redis`) to stay as small as possible — the
+image is a `scratch`-based binary under 20MB and idles at a few MB of RAM.
+It knows nothing about tag reads specifically; `<channel>` can be any
+Valkey pub/sub channel, including ones this app doesn't otherwise know
+about.
+
+```bash
+curl -N http://localhost/events/tag_read
+```
+
+This is what the Readers page itself subscribes to (via the browser's
+native `EventSource`, no polling and no client library) for its "Tag reads"
+list and for lighting up each reader's antenna badges live — an antenna
+badge lights when that reader+antenna produced a read in roughly the last
+second; with **Antenna Test Mode** toggled on, a badge stays lit once
+triggered — across every reader — until the toggle is turned back off, so
+an operator can walk a tag past each antenna and check them all afterward
+instead of catching each one lighting up in real time. `EventSource`
+reconnects on its own if the connection drops (the page shows a "Live tag
+stream disconnected — reconnecting…" notice meanwhile); each event's
+`antenna`/`rssi`/`timestamp` arrive as strings (`XADD` requires string
+field values) and are parsed client-side, unlike `/api/tags`'s already-typed
+JSON response.
+
+Each line is either `data: <the published message>` or a `: comment` —
+either an initial `: connected` or a `: keep-alive` sent every 15s while
+nothing's been published, so the connection doesn't look dead to nginx or
+the browser. nginx proxies `/events/` to it with buffering disabled and a
+long read timeout (`nginx/default.conf`), both required for a stream that's
+meant to stay open indefinitely. Not published directly to the host — reach
+it through nginx, same as the frontend.
 
 ## Local development (without Docker)
 
@@ -412,10 +467,11 @@ All configuration is via environment variables (see `.env.example`):
 
 ## Running on a Raspberry Pi / ARM64
 
-No changes needed — every image used (`python:3.12-slim`, `node:20-alpine`,
-`postgres:16-alpine`, `nginx:1.27-alpine`) publishes multi-arch builds, and
-`docker compose up --build` will build native ARM64 images on-device. Expect
-the first build to take a few minutes on a Pi; subsequent starts are fast.
+No changes needed — every image used (`python:3.12-slim`, `python:3.12-alpine`,
+`node:20-alpine`, `postgres:16-alpine`, `valkey/valkey:8-alpine`,
+`nginx:1.27-alpine`) publishes multi-arch builds, and `docker compose up
+--build` will build native ARM64 images on-device. Expect the first build to
+take a few minutes on a Pi; subsequent starts are fast.
 
 ## Project website
 

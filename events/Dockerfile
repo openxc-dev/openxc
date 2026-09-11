@@ -7,11 +7,13 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY starter.go .
-RUN CGO_ENABLED=0 go build -o /out/starter starter.go
+COPY server.go .
+RUN CGO_ENABLED=0 go build -o /out/events-server server.go
 
 FROM scratch
 
-COPY --from=build /out/starter /starter
+COPY --from=build /out/events-server /events-server
 
-ENTRYPOINT ["/starter"]
+EXPOSE 8001
+
+ENTRYPOINT ["/events-server"]

@@ -102,6 +102,46 @@
 			deletingMeet = null;
 		}
 	}
+
+	let startingAllReaders = false;
+	let stoppingAllReaders = false;
+	let readersActionError = '';
+
+	async function startAllReaders(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		readersActionError = '';
+		startingAllReaders = true;
+		try {
+			const readers = await api.listReaders();
+			const connected = readers.filter((r) => r.status === 'connected');
+			const results = await Promise.allSettled(connected.map((r) => api.startReading(r.label)));
+			const failed = results.filter((r) => r.status === 'rejected').length;
+			if (failed > 0) readersActionError = `Failed to start ${failed} of ${connected.length} reader(s).`;
+		} catch (err) {
+			readersActionError = err.message;
+		} finally {
+			startingAllReaders = false;
+		}
+	}
+
+	async function stopAllReaders(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		readersActionError = '';
+		stoppingAllReaders = true;
+		try {
+			const readers = await api.listReaders();
+			const connected = readers.filter((r) => r.status === 'connected');
+			const results = await Promise.allSettled(connected.map((r) => api.stopReading(r.label)));
+			const failed = results.filter((r) => r.status === 'rejected').length;
+			if (failed > 0) readersActionError = `Failed to stop ${failed} of ${connected.length} reader(s).`;
+		} catch (err) {
+			readersActionError = err.message;
+		} finally {
+			stoppingAllReaders = false;
+		}
+	}
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -200,14 +240,25 @@
 					{/each}
 				</nav>
 
-				<a
-					href="/readers"
-					class="sidebar-footer-link"
-					class:active={$page.url.pathname.startsWith('/readers')}
-				>
-					<span class="footer-link-icon">📡</span>
-					Readers
-				</a>
+				<div class="sidebar-footer">
+					<a
+						href="/readers"
+						class="sidebar-footer-link"
+						class:active={$page.url.pathname.startsWith('/readers')}
+					>
+						<span class="footer-link-icon">📡</span>
+						Readers
+					</a>
+					<div class="sidebar-footer-actions">
+						<button class="btn btn-sm" disabled={startingAllReaders} on:click={startAllReaders}>
+							{startingAllReaders ? '…' : 'Start all'}
+						</button>
+						<button class="btn btn-sm" disabled={stoppingAllReaders} on:click={stopAllReaders}>
+							{stoppingAllReaders ? '…' : 'Stop all'}
+						</button>
+					</div>
+					{#if readersActionError}<p class="sidebar-error footer-error">{readersActionError}</p>{/if}
+				</div>
 			</aside>
 
 			<main class="content">
@@ -490,16 +541,19 @@
 		text-align: center;
 	}
 
-	.sidebar-footer-link {
+	.sidebar-footer {
 		margin-top: auto;
 		position: sticky;
 		bottom: 0;
+		border-top: 1px solid var(--border);
+		background: var(--bg-elevated);
+	}
+
+	.sidebar-footer-link {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 12px 16px;
-		border-top: 1px solid var(--border);
-		background: var(--bg-elevated);
+		padding: 12px 16px 8px;
 		color: var(--text-muted);
 		font-weight: 500;
 		font-size: 13.5px;
@@ -512,6 +566,21 @@
 
 	.sidebar-footer-link.active {
 		color: var(--accent);
+	}
+
+	.sidebar-footer-actions {
+		display: flex;
+		gap: 6px;
+		padding: 0 16px 12px;
+	}
+
+	.sidebar-footer-actions .btn {
+		flex: 1;
+		justify-content: center;
+	}
+
+	.footer-error {
+		margin: 0 16px 12px;
 	}
 
 	.footer-link-icon {

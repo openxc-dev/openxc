@@ -1,3 +1,11 @@
+@font-face {
+	font-family: 'Blinker';
+	src: url('/Blinker-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
 :root {
 	--bg: #0b0d12;
 	--bg-elevated: #12151c;
@@ -14,7 +22,7 @@
 	--amber: #f59e0b;
 	--red: #ef4444;
 	--radius: 8px;
-	--font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+	--font: 'Blinker', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
 * {

@@ -42,6 +42,7 @@ from pyllrp.pyllrp import (
     TagReportContentSelector_Parameter,
 )
 
+from app.auto_finish import record_finish_from_tag
 from app.tag_stream import record_tag_read
 
 log = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class ReaderSession:
                 label=self.label,
                 reader_id=self.reader_id,
             )
+            record_finish_from_tag(tag_id, read_time)
 
     def _build_rospec(self, antennas=None):
         antennas = antennas if antennas is not None else [0]  # 0 = all antennas.

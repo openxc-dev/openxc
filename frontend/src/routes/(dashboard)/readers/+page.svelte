@@ -2,6 +2,11 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/api';
 
+	function readerModel(reader) {
+		const parts = [reader.manufacturer, reader.product].filter(Boolean);
+		return parts.length > 0 ? parts.join(' ') : null;
+	}
+
 	function formatTagTime(iso) {
 		if (!iso) return '—';
 		return new Date(iso).toLocaleTimeString(undefined, {
@@ -20,6 +25,12 @@
 	function antennaSlots(reader) {
 		const count = Math.max(reader.num_antennas || 0, MIN_ANTENNA_SLOTS);
 		const connected = reader.connected_antennas;
+		// connected_antennas/num_antennas are last-known values that stick
+		// around in the DB after a disconnect, so without this check a
+		// disconnected reader would still show its old antennas as present.
+		// Forcing every slot dark while not connected is a secondary visual
+		// cue (alongside the Status column) that the reader is offline.
+		const isReaderConnected = reader.status === 'connected';
 		return Array.from({ length: count }, (_, i) => {
 			const id = i + 1;
 			// connected_antennas is the real per-antenna "is something
@@ -27,7 +38,8 @@
 			// IDs. If the reader didn't report it (null), fall back to
 			// treating every port up to num_antennas as lit, since that's
 			// the best information available.
-			const present = connected ? connected.includes(id) : id <= (reader.num_antennas || 0);
+			const present =
+				isReaderConnected && (connected ? connected.includes(id) : id <= (reader.num_antennas || 0));
 			return { id, present };
 		});
 	}
@@ -48,19 +60,19 @@
 
 	// --- Global tag-read stream: spans every reader, so an antenna badge is
 	// keyed by "label:antennaId" rather than just antenna id (antenna 2 on
-	// reader A and antenna 2 on reader B are unrelated). Polled continuously
-	// (not just while the detail panel is open) so the main table's antenna
-	// badges stay live regardless of whether that panel is expanded. ---
-	const TAG_POLL_INTERVAL_MS = 1500;
-	const TAG_POLL_WINDOW_SECONDS = 8; // > poll interval, safety margin against gaps
+	// reader A and antenna 2 on reader B are unrelated). Fed by a live SSE
+	// subscription (see events/server.py) rather than polling /api/tags, so
+	// the main table's antenna badges react the instant a read is published
+	// — not just while the detail panel is open, since the subscription
+	// runs for the lifetime of the page regardless of that panel's state. ---
 	const RECENT_MS = 1000; // "lit" window for a normal (non-test-mode) read
 	const MAX_STORED_TAGS = 2000;
+	let idCounter = 0;
 
-	let showTagReads = false;
+	let showTagReads = true;
 	let allTags = []; // accumulated, newest first
 	let tagsError = '';
-	let tagsPollHandle = null;
-	const seenTagIds = new Set();
+	let eventSource = null;
 	let lastSeenMap = {}; // "label:antenna" -> ms epoch of most recent read
 
 	let now = Date.now();
@@ -110,43 +122,74 @@
 		}
 	}
 
-	async function pollTagStream() {
+	// The events service (events/server.py) publishes the same fields
+	// tag_stream.py XADDs to the Valkey stream, JSON-encoded — but since
+	// XADD requires string values, antenna/rssi/timestamp arrive as strings
+	// here and need parsing, unlike /api/tags's already-typed response.
+	function parseSseTag(raw) {
+		idCounter += 1;
+		return {
+			id: idCounter,
+			event_type: raw.event_type || '',
+			tag: raw.tag || '',
+			antenna: raw.antenna ? Number(raw.antenna) : null,
+			rssi: raw.rssi ? Number(raw.rssi) : null,
+			timestamp: raw.timestamp ? Number(raw.timestamp) : null,
+			time: raw.time || null,
+			label: raw.label || '',
+			reader_id: raw.reader_id || ''
+		};
+	}
+
+	function handleTagEvent(event) {
+		let raw;
 		try {
-			const entries = await api.listTagStream(TAG_POLL_WINDOW_SECONDS); // oldest-first
-			const fresh = entries.filter((e) => !seenTagIds.has(e.id));
-			if (fresh.length > 0) {
-				for (const e of fresh) {
-					seenTagIds.add(e.id);
-					if (e.label && e.antenna != null) {
-						const key = antennaKey(e.label, e.antenna);
-						// Use the numeric epoch field, not new Date(e.time) —
-						// a timezone-less ISO string parses as *local* time
-						// in JS, not UTC, which silently corrupts this by a
-						// browser-timezone-sized offset.
-						const ts = e.timestamp ? e.timestamp * 1000 : Date.now();
-						if (!lastSeenMap[key] || ts > lastSeenMap[key]) lastSeenMap[key] = ts;
-						if (testMode) testModeSeenAntennas.add(key);
-					}
-				}
-				lastSeenMap = { ...lastSeenMap };
-				if (testMode) testModeSeenAntennas = testModeSeenAntennas;
-				allTags = [...fresh.slice().reverse(), ...allTags].slice(0, MAX_STORED_TAGS);
-			}
-			tagsError = '';
+			raw = JSON.parse(event.data);
 		} catch (e) {
-			tagsError = e.message;
+			return; // malformed payload — ignore rather than break the stream
 		}
+		const t = parseSseTag(raw);
+
+		if (t.label && t.antenna != null) {
+			const key = antennaKey(t.label, t.antenna);
+			// Use the numeric epoch field, not new Date(t.time) — a
+			// timezone-less ISO string parses as *local* time in JS, not
+			// UTC, which silently corrupts this by a browser-timezone-sized
+			// offset.
+			const ts = t.timestamp != null ? t.timestamp * 1000 : Date.now();
+			if (!lastSeenMap[key] || ts > lastSeenMap[key]) lastSeenMap[key] = ts;
+			lastSeenMap = { ...lastSeenMap };
+			if (testMode) {
+				testModeSeenAntennas.add(key);
+				testModeSeenAntennas = testModeSeenAntennas;
+			}
+		}
+
+		allTags = [t, ...allTags].slice(0, MAX_STORED_TAGS);
+		tagsError = '';
+	}
+
+	function connectTagStream() {
+		eventSource = new EventSource('/events/tag_read');
+		eventSource.onopen = () => {
+			tagsError = '';
+		};
+		eventSource.onmessage = handleTagEvent;
+		eventSource.onerror = () => {
+			// The browser retries the connection on its own; this just
+			// reflects that to the operator while it does.
+			tagsError = 'Live tag stream disconnected — reconnecting…';
+		};
 	}
 
 	onMount(() => {
 		refresh();
-		pollTagStream();
-		tagsPollHandle = setInterval(pollTagStream, TAG_POLL_INTERVAL_MS);
+		connectTagStream();
 		nowTickHandle = setInterval(() => (now = Date.now()), 300);
 	});
 
 	onDestroy(() => {
-		if (tagsPollHandle) clearInterval(tagsPollHandle);
+		if (eventSource) eventSource.close();
 		if (nowTickHandle) clearInterval(nowTickHandle);
 	});
 
@@ -294,11 +337,10 @@
 						<tr>
 							<th>Label</th>
 							<th>IP address</th>
-							<th>Manufacturer</th>
-							<th>Product</th>
+							<th>Model</th>
+							<th>Serial Number</th>
 							<th>Antennas</th>
 							<th>Status</th>
-							<th>Reading</th>
 							<th></th>
 						</tr>
 					</thead>
@@ -307,8 +349,8 @@
 							<tr>
 								<td class="name-cell">{reader.label}</td>
 								<td>{reader.ip_address}</td>
-								<td>{reader.manufacturer ?? '—'}</td>
-								<td>{reader.product ?? '—'}</td>
+								<td>{readerModel(reader) ?? '—'}</td>
+								<td>{reader.serial_number ?? '—'}</td>
 								<td>
 								<div class="antenna-badges">
 									{#each antennaSlots(reader) as slot (slot.id)}
@@ -323,16 +365,14 @@
 								</div>
 							</td>
 								<td>
-									<span class="badge" class:badge-accent={reader.status === 'connected'}>
-										{reader.status}
-									</span>
-								</td>
-								<td>
-									{#if reader.reading}
-										<span class="badge badge-accent">reading</span>
-									{:else}
-										<span class="badge">idle</span>
-									{/if}
+									<div class="status-cell">
+										<span class="badge" class:badge-accent={reader.status === 'connected'}>
+											{reader.status}
+										</span>
+										{#if reader.reading}
+											<span class="badge badge-accent">reading</span>
+										{/if}
+									</div>
 								</td>
 								<td class="actions-cell">
 									<button
@@ -377,9 +417,14 @@
 					Tag reads
 					<span class="count">({allTags.length})</span>
 				</h3>
-				<button class="btn btn-sm" on:click={() => (showTagReads = !showTagReads)}>
-					{showTagReads ? 'Hide' : 'Show'}
-				</button>
+				<div class="tags-header-actions">
+					<button class="btn btn-sm" disabled={allTags.length === 0} on:click={() => (allTags = [])}>
+						Clear
+					</button>
+					<button class="btn btn-sm" on:click={() => (showTagReads = !showTagReads)}>
+						{showTagReads ? 'Hide' : 'Show'}
+					</button>
+				</div>
 			</div>
 
 			{#if tagsError}<p class="error">{tagsError}</p>{/if}
@@ -507,6 +552,12 @@
 		gap: 4px;
 	}
 
+	.status-cell {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
 	.antenna-badge {
 		display: inline-flex;
 		align-items: center;
@@ -560,6 +611,12 @@
 		align-items: center;
 		gap: 8px;
 		font-size: 14px;
+	}
+
+	.tags-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 
 	.test-mode-toggle {

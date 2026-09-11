@@ -29,6 +29,14 @@ it and can ignore this directory entirely.
    time since that trigger, and derives a wall-clock timestamp from that —
    then POSTs it. If several records were appended between checks (e.g. the
    poll interval was slow to catch up), each is posted in order.
+4. Alongside that POST — the authoritative delivery — each start is also
+   mirrored into Valkey: `XADD`ed onto the shared `livestream` stream (the
+   same one finish-line tag reads go into; see the main `README.md`'s "Tag
+   read stream" section) and `PUBLISH`ed to the `start` channel for live
+   subscribers, e.g. `GET /events/start` (see the main README's "Live
+   events over HTTP"). Both are best-effort: if Valkey is unreachable, the
+   failure is logged and otherwise ignored — it never blocks or fails the
+   actual start.
 
 The **containing directory** (`/var/run` by default) is bind-mounted, not
 the trigger file itself — this matters, see below.
@@ -44,12 +52,12 @@ over, replacing it via the standard temp-file-plus-`os.rename()` pattern),
 a single-file mount would silently keep seeing the original, now-stale
 inode forever, and both inotify and the poll loop would stop seeing new
 records. Watching the containing directory and filtering events by
-filename (see `inotify_loop` in `starter.py`) survives that case too. One
+filename (see `inotifyLoop` in `starter.go`) survives that case too. One
 consequence: because the mount source is a directory that already exists,
 you don't need to pre-create the trigger file before starting the
 container the way you would with a single-file mount. Separately, if the
 file's size is ever observed to *shrink* (a recreate/truncate happened),
-`starter.py` logs a warning and resumes from the new end rather than
+`starter.go` logs a warning and resumes from the new end rather than
 re-reading or erroring — it deliberately doesn't try to guess which old
 records, if any, were already reported before the file was replaced.
 
@@ -115,7 +123,7 @@ docker compose logs -f starter
 | `VALUE_UNIT` | `ns` | `ns`, `us`, `ms`, or `s` — unit of the monotonic reading. |
 | `POLL_INTERVAL_SECONDS` | `5` | How often the fallback poll re-checks the file. |
 | `MAX_REASONABLE_DELAY_SECONDS` | `3600` | A computed event time further than this from "now" is logged and dropped rather than posted — guards against posting garbage from an empty/misconfigured file. |
-| `LOG_LEVEL` | `INFO` | Python logging level. |
+| `VALKEY_HOST` / `VALKEY_PORT` | `valkey` / `6379` | Where to mirror each start (`XADD` to `livestream`, `PUBLISH` to `start`) — see step 4 above. A connection failure here is logged and otherwise ignored. |
 
 ## Testing without real hardware
 
