@@ -75,10 +75,10 @@ def fetch_impinj_info(ip_address: str) -> dict:
     }
 
 
-def fetch_vendor_web_info(ip_address: str, llrp_manufacturer: str) -> tuple[str, str] | None:
-    """Best-effort (manufacturer, product) enrichment from the reader's own
-    web admin page. Which vendor's page to try is picked from the
-    manufacturer LLRP already resolved — 'Impinj' tries the Impinj page,
+def fetch_vendor_web_info(ip_address: str, llrp_manufacturer: str) -> tuple[str, str, str] | None:
+    """Best-effort (manufacturer, product, serial_number) enrichment from the
+    reader's own web admin page. Which vendor's page to try is picked from
+    the manufacturer LLRP already resolved — 'Impinj' tries the Impinj page,
     anything else tries the Zebra/Motorola page (the only other vendor this
     supports). Returns None on any failure or empty result; callers should
     keep the LLRP numeric values in that case."""
@@ -92,4 +92,5 @@ def fetch_vendor_web_info(ip_address: str, llrp_manufacturer: str) -> tuple[str,
     if not product:
         return None
     manufacturer = info.get("mfr") or llrp_manufacturer
-    return manufacturer, product
+    serial_number = info.get("sn") or ""
+    return manufacturer, product, serial_number

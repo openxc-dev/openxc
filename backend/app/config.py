@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_port: int = 5432
 
+    valkey_host: str = "valkey"
+    valkey_port: int = 6379
+
     cors_origins: str = "*"
 
     @property

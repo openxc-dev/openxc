@@ -118,6 +118,7 @@ def upgrade() -> None:
         sa.Column("ip_address", sa.String(length=45), nullable=False),
         sa.Column("manufacturer", sa.String(length=255), nullable=True),
         sa.Column("product", sa.String(length=255), nullable=True),
+        sa.Column("serial_number", sa.String(length=255), nullable=True),
         sa.Column("num_antennas", sa.Integer(), nullable=True),
         sa.Column("connected_antennas", postgresql.ARRAY(sa.Integer()), nullable=True),
         sa.Column("status", sa.String(length=20), nullable=False, server_default="disconnected"),

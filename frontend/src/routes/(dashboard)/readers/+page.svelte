@@ -46,11 +46,58 @@
 	let busyLabel = null;
 	let readingBusyLabel = null;
 
-	let selectedLabel = null;
-	let selectedTags = [];
-	let selectedReading = false;
+	// --- Global tag-read stream: spans every reader, so an antenna badge is
+	// keyed by "label:antennaId" rather than just antenna id (antenna 2 on
+	// reader A and antenna 2 on reader B are unrelated). Polled continuously
+	// (not just while the detail panel is open) so the main table's antenna
+	// badges stay live regardless of whether that panel is expanded. ---
+	const TAG_POLL_INTERVAL_MS = 1500;
+	const TAG_POLL_WINDOW_SECONDS = 8; // > poll interval, safety margin against gaps
+	const RECENT_MS = 1000; // "lit" window for a normal (non-test-mode) read
+	const MAX_STORED_TAGS = 2000;
+
+	let showTagReads = false;
+	let allTags = []; // accumulated, newest first
 	let tagsError = '';
 	let tagsPollHandle = null;
+	const seenTagIds = new Set();
+	let lastSeenMap = {}; // "label:antenna" -> ms epoch of most recent read
+
+	let now = Date.now();
+	let nowTickHandle = null;
+
+	// Antenna Test Mode: normally an antenna is lit only if it produced a
+	// read within the last second (a live "what's firing right now"
+	// indicator). In test mode, every antenna (on any reader) that has seen
+	// a read since the toggle was turned on stays lit — so an operator can
+	// flip it on, walk a tag past each antenna in turn, then come back and
+	// see which ones registered without needing to catch each one lighting
+	// up in real time.
+	let testMode = false;
+	let testModeSeenAntennas = new Set();
+
+	function antennaKey(label, antennaId) {
+		return `${label}:${antennaId}`;
+	}
+
+	// Svelte only tracks variables actually referenced in a template
+	// expression — calling a plain function that closes over other state
+	// doesn't register as a dependency. Computing the lit set here, with
+	// every input (testMode, testModeSeenAntennas, now, lastSeenMap)
+	// referenced directly in this $: expression, makes the antenna badges
+	// update correctly (including the live 1s decay, driven by `now`).
+	$: litSet = testMode
+		? testModeSeenAntennas
+		: new Set(
+				Object.entries(lastSeenMap)
+					.filter(([, t]) => now - t < RECENT_MS)
+					.map(([key]) => key)
+			);
+
+	function setTestMode(value) {
+		testMode = value;
+		if (testMode) testModeSeenAntennas = new Set();
+	}
 
 	async function refresh() {
 		try {
@@ -63,8 +110,45 @@
 		}
 	}
 
-	onMount(refresh);
-	onDestroy(() => stopTagsPolling());
+	async function pollTagStream() {
+		try {
+			const entries = await api.listTagStream(TAG_POLL_WINDOW_SECONDS); // oldest-first
+			const fresh = entries.filter((e) => !seenTagIds.has(e.id));
+			if (fresh.length > 0) {
+				for (const e of fresh) {
+					seenTagIds.add(e.id);
+					if (e.label && e.antenna != null) {
+						const key = antennaKey(e.label, e.antenna);
+						// Use the numeric epoch field, not new Date(e.time) —
+						// a timezone-less ISO string parses as *local* time
+						// in JS, not UTC, which silently corrupts this by a
+						// browser-timezone-sized offset.
+						const ts = e.timestamp ? e.timestamp * 1000 : Date.now();
+						if (!lastSeenMap[key] || ts > lastSeenMap[key]) lastSeenMap[key] = ts;
+						if (testMode) testModeSeenAntennas.add(key);
+					}
+				}
+				lastSeenMap = { ...lastSeenMap };
+				if (testMode) testModeSeenAntennas = testModeSeenAntennas;
+				allTags = [...fresh.slice().reverse(), ...allTags].slice(0, MAX_STORED_TAGS);
+			}
+			tagsError = '';
+		} catch (e) {
+			tagsError = e.message;
+		}
+	}
+
+	onMount(() => {
+		refresh();
+		pollTagStream();
+		tagsPollHandle = setInterval(pollTagStream, TAG_POLL_INTERVAL_MS);
+		nowTickHandle = setInterval(() => (now = Date.now()), 300);
+	});
+
+	onDestroy(() => {
+		if (tagsPollHandle) clearInterval(tagsPollHandle);
+		if (nowTickHandle) clearInterval(nowTickHandle);
+	});
 
 	async function createReader() {
 		const ip_address = newIp.trim();
@@ -113,7 +197,6 @@
 				await api.stopReading(reader.label);
 			} else {
 				await api.startReading(reader.label);
-				selectReader(reader.label);
 			}
 		} catch (e) {
 			error = `${reader.label}: ${e.message}`;
@@ -121,38 +204,6 @@
 			readingBusyLabel = null;
 			await refresh();
 		}
-	}
-
-	function stopTagsPolling() {
-		if (tagsPollHandle) {
-			clearInterval(tagsPollHandle);
-			tagsPollHandle = null;
-		}
-	}
-
-	async function pollTags() {
-		if (!selectedLabel) return;
-		try {
-			const res = await api.listReaderTags(selectedLabel);
-			selectedReading = res.reading;
-			selectedTags = res.tags.slice().reverse();
-			tagsError = '';
-		} catch (e) {
-			tagsError = e.message;
-		}
-	}
-
-	function selectReader(label) {
-		if (selectedLabel === label) {
-			selectedLabel = null;
-			stopTagsPolling();
-			return;
-		}
-		selectedLabel = label;
-		selectedTags = [];
-		stopTagsPolling();
-		pollTags();
-		tagsPollHandle = setInterval(pollTags, 1500);
 	}
 
 	function handleKeydown(e) {
@@ -175,9 +226,23 @@
 	<div class="page-content">
 		<div class="header-row">
 			<h2>Registered readers <span class="count">({readers.length})</span></h2>
-			<button class="btn btn-primary btn-sm" on:click={() => (creating = !creating)}>
-				{creating ? 'Cancel' : '+ Add Reader'}
-			</button>
+			<div class="header-actions">
+				<label
+					class="test-mode-toggle"
+					title="Keep antenna badges lit once triggered, until turned off"
+				>
+					<input
+						type="checkbox"
+						checked={testMode}
+						on:change={(e) => setTestMode(e.target.checked)}
+					/>
+					<span class="toggle-track"><span class="toggle-thumb"></span></span>
+					Antenna Test Mode
+				</label>
+				<button class="btn btn-primary btn-sm" on:click={() => (creating = !creating)}>
+					{creating ? 'Cancel' : '+ Add Reader'}
+				</button>
+			</div>
 		</div>
 
 		{#if error}<p class="error">{error}</p>{/if}
@@ -239,19 +304,21 @@
 					</thead>
 					<tbody>
 						{#each readers as reader (reader.id)}
-							<tr class:selected={selectedLabel === reader.label}>
-								<td class="name-cell">
-									<button class="link-btn" on:click={() => selectReader(reader.label)}>
-										{reader.label}
-									</button>
-								</td>
+							<tr>
+								<td class="name-cell">{reader.label}</td>
 								<td>{reader.ip_address}</td>
 								<td>{reader.manufacturer ?? '—'}</td>
 								<td>{reader.product ?? '—'}</td>
 								<td>
 								<div class="antenna-badges">
 									{#each antennaSlots(reader) as slot (slot.id)}
-										<span class="antenna-badge" class:present={slot.present}>{slot.id}</span>
+										<span
+											class="antenna-badge"
+											class:present={slot.present}
+											class:lit={litSet.has(antennaKey(reader.label, slot.id))}
+										>
+											{slot.id}
+										</span>
 									{/each}
 								</div>
 							</td>
@@ -304,29 +371,30 @@
 			</div>
 		{/if}
 
-		{#if selectedLabel}
-			<div class="card tags-panel">
-				<div class="tags-header">
-					<h3>
-						Tag reads — {selectedLabel}
-						{#if selectedReading}<span class="badge badge-accent">reading</span>{/if}
-					</h3>
-					<button class="btn btn-sm" on:click={() => selectReader(selectedLabel)}>Close</button>
-				</div>
-				{#if tagsError}<p class="error">{tagsError}</p>{/if}
-				{#if selectedTags.length === 0}
+		<div class="card tags-panel">
+			<div class="tags-header">
+				<h3>
+					Tag reads
+					<span class="count">({allTags.length})</span>
+				</h3>
+				<button class="btn btn-sm" on:click={() => (showTagReads = !showTagReads)}>
+					{showTagReads ? 'Hide' : 'Show'}
+				</button>
+			</div>
+
+			{#if tagsError}<p class="error">{tagsError}</p>{/if}
+
+			{#if showTagReads}
+				{#if allTags.length === 0}
 					<div class="empty-state">
-						<p>
-							{selectedReading
-								? 'Waiting for tag reads…'
-								: 'No tag reads yet. Click Start to begin reading.'}
-						</p>
+						<p>No tag reads yet. Click Start on a reader to begin reading.</p>
 					</div>
 				{:else}
 					<div class="tags-list scrollbar-thin">
 						<table>
 							<thead>
 								<tr>
+									<th>Reader</th>
 									<th>Tag</th>
 									<th>Antenna</th>
 									<th>RSSI</th>
@@ -334,11 +402,12 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each selectedTags as t, i (i)}
+								{#each allTags as t (t.id)}
 									<tr>
-										<td class="name-cell">{t.tag}</td>
-										<td>{t.antenna_id ?? '—'}</td>
-										<td>{t.peak_rssi ?? '—'}</td>
+										<td class="name-cell">{t.label || '—'}</td>
+										<td>{t.tag}</td>
+										<td>{t.antenna ?? '—'}</td>
+										<td>{t.rssi ?? '—'}</td>
 										<td>{formatTagTime(t.time)}</td>
 									</tr>
 								{/each}
@@ -346,8 +415,8 @@
 						</table>
 					</div>
 				{/if}
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 </div>
 
@@ -384,6 +453,14 @@
 		align-items: center;
 		justify-content: space-between;
 		margin-bottom: 16px;
+		gap: 16px;
+		flex-wrap: wrap;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 14px;
 	}
 
 	.count {
@@ -451,29 +528,18 @@
 		color: #4ade80;
 	}
 
+	/* Wins over .present when both apply — a "just triggered" antenna
+	   during a live read or an antenna test walk. */
+	.antenna-badge.lit {
+		background: var(--accent);
+		border-color: var(--accent);
+		color: #06210f;
+	}
+
 	.actions-cell {
 		display: flex;
 		justify-content: flex-end;
 		gap: 6px;
-	}
-
-	tr.selected {
-		background: var(--bg-hover);
-	}
-
-	.link-btn {
-		background: none;
-		border: none;
-		padding: 0;
-		font: inherit;
-		font-weight: 500;
-		color: var(--text);
-		cursor: pointer;
-	}
-
-	.link-btn:hover {
-		color: var(--accent);
-		text-decoration: underline;
 	}
 
 	.tags-panel {
@@ -494,6 +560,55 @@
 		align-items: center;
 		gap: 8px;
 		font-size: 14px;
+	}
+
+	.test-mode-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12.5px;
+		color: var(--text-muted);
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.test-mode-toggle input {
+		position: absolute;
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.toggle-track {
+		position: relative;
+		width: 30px;
+		height: 18px;
+		background: var(--bg-card);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		flex-shrink: 0;
+		transition: background 0.15s, border-color 0.15s;
+	}
+
+	.toggle-thumb {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--text-faint);
+		transition: transform 0.15s, background 0.15s;
+	}
+
+	.test-mode-toggle input:checked + .toggle-track {
+		background: var(--accent-soft);
+		border-color: var(--accent);
+	}
+
+	.test-mode-toggle input:checked + .toggle-track .toggle-thumb {
+		transform: translateX(12px);
+		background: var(--accent);
 	}
 
 	.tags-list {

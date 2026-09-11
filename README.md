@@ -55,6 +55,7 @@ results page ("Race page ↗" next to each race).
 ```
 docker-compose.yml
 ├─ postgres   — durable storage, named volume `postgres_data`
+├─ valkey     — tag-read stream (port 6379, published for diagnostics)
 ├─ backend    — FastAPI REST API (port 8000, also reachable directly), runs Alembic migrations on boot
 ├─ frontend   — SvelteKit app (internal only), server-side proxies /api/* to backend
 ├─ nginx      — reverse proxy (port 80): / → frontend, /api → backend
@@ -192,6 +193,7 @@ is running. Highlights:
 | Finish order | `GET /api/races/{race_id}/finishers`, `PATCH/DELETE /api/finishers/{id}`, `POST /api/races/{race_id}/finishers/reorder` |
 | Results | `GET /api/races/{race_id}/results`, `GET /api/meets/{meet_id}/races/{race_slug}/results` (public), `GET /api/meets/{meet_id}/results` (public) |
 | Readers | `GET/POST /api/readers`, `GET /api/readers/{label}`, `POST /api/readers/{label}/connect`\|`disconnect`\|`start`\|`stop`, `GET /api/readers/{label}/tags` — see [LLRP readers](#llrp-readers) |
+| Tags | `GET /api/tags` (optional `?seconds=`) — all readers' tag reads from the Valkey stream, see [Tag read stream](#tag-read-stream-valkey) |
 
 `POST /api/meets/{meet_id}/finishes` is deliberately not race-scoped: pass a
 `bib` and the race is resolved from that athlete's roster entry, so one
@@ -312,6 +314,51 @@ API). The LLRP session itself is handled by
   a tag to a bib/athlete) is still follow-up work — right now this only
   gets tag IDs into a buffer the UI can watch.
 
+### Tag read stream (Valkey)
+
+Every tag read is also `XADD`ed to a [Valkey](https://valkey.io/) stream
+named `livestream` (`backend/app/tag_stream.py`) — a durable, external record
+of raw reads, independent of the in-memory buffer above and of any
+particular backend process's lifetime. Each stream entry has these fields:
+
+| Field | Description |
+|---|---|
+| `event_type` | Always `tag_read` |
+| `tag` | The EPC, hex-decoded |
+| `antenna` | Antenna ID the tag was read on |
+| `rssi` | Signal strength reported for the read |
+| `time` | ISO 8601 wall-clock time of the read |
+| `timestamp` | The same moment as `time`, as Unix epoch seconds |
+| `label` | The reader's label |
+| `reader_id` | The reader's serial number, if known (blank otherwise — see [LLRP readers](#llrp-readers)'s note on the vendor web page lookup) |
+
+This is meant for diagnostics and for other tools/processes to consume
+independently of this app — `valkey` is published on the host specifically
+for that (`VALKEY_PORT`, default 6379):
+
+```bash
+valkey-cli -h localhost XRANGE livestream - +      # everything, oldest first
+valkey-cli -h localhost XREAD COUNT 10 BLOCK 0 STREAMS livestream '$'   # follow live
+```
+
+`GET /api/tags` exposes the same stream over HTTP — `XRANGE`, scoped to a
+recent time window rather than the whole stream, spanning every reader (not
+one at a time like `GET /api/readers/{label}/tags`). Defaults to the last 5
+seconds; pass `?seconds=` to widen or narrow the window, e.g.
+`GET /api/tags?seconds=30`. This is what the Readers page itself now polls
+for its "Tag reads" list and for lighting up each reader's antenna badges
+live (an antenna badge lights when that reader+antenna produced a read in
+roughly the last second; with **Antenna Test Mode** toggled on, a badge
+stays lit once triggered — across every reader — until the toggle is turned
+back off, so an operator can walk a tag past each antenna and check them
+all afterward instead of catching each one lighting up in real time).
+
+Writing to the stream is best-effort: if Valkey is unreachable, tag reading
+itself is unaffected (it's logged as a warning) — but note this means the
+Readers page's live tag list/antenna lighting *does* depend on Valkey being
+up, unlike the per-reader in-memory buffer (`GET /api/readers/{label}/tags`),
+which doesn't.
+
 ## Local development (without Docker)
 
 **Backend**
@@ -361,6 +408,7 @@ All configuration is via environment variables (see `.env.example`):
 | `SEED_DEMO_DATA` | `true` | Seed a demo meet on first boot |
 | `HTTP_PORT` | `80` | Host port for nginx — the app's main entry point |
 | `DASHBOARD_PASSCODE` | `1234` | Passcode required to unlock the operator dashboard — see [Dashboard passcode](#dashboard-passcode) |
+| `VALKEY_PORT` | `6379` | Host port for Valkey — see [Tag read stream](#tag-read-stream-valkey) |
 
 ## Running on a Raspberry Pi / ARM64
 

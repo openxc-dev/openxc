@@ -72,9 +72,10 @@ def connect_reader(label: str, db: Session = Depends(get_db)):
     LLRP itself only reports numeric vendor/model codes, so once the LLRP
     connect succeeds this also makes a best-effort attempt at the reader's
     own web admin page (Impinj or Zebra/Motorola) for human-readable
-    manufacturer/model strings, overwriting the numeric ones on success.
-    Any failure there (blocked port, reader doesn't expose it, unexpected
-    page) is silently ignored — the numeric LLRP values are kept."""
+    manufacturer/model strings and the reader's serial number, overwriting
+    the numeric ones on success. Any failure there (blocked port, reader
+    doesn't expose it, unexpected page) is silently ignored — the numeric
+    LLRP values are kept and serial_number stays whatever it was before."""
     reader = _get_reader_or_404(db, label)
     try:
         caps = fetch_reader_capabilities(reader.ip_address)
@@ -83,14 +84,16 @@ def connect_reader(label: str, db: Session = Depends(get_db)):
         db.commit()
         raise HTTPException(status_code=502, detail=str(e))
 
-    manufacturer, product = caps.manufacturer, caps.product
+    manufacturer, product, serial_number = caps.manufacturer, caps.product, None
     web_info = fetch_vendor_web_info(reader.ip_address, caps.manufacturer)
     if web_info:
-        manufacturer, product = web_info
+        manufacturer, product, serial_number = web_info
 
     reader.status = models.ReaderStatus.CONNECTED.value
     reader.manufacturer = manufacturer
     reader.product = product
+    if serial_number:
+        reader.serial_number = serial_number
     reader.num_antennas = caps.num_antennas
     reader.connected_antennas = caps.connected_antennas
     db.commit()
@@ -119,7 +122,7 @@ def start_reader(label: str, db: Session = Depends(get_db)):
     .../tags). No-op if already reading."""
     reader = _get_reader_or_404(db, label)
     try:
-        start_reading(reader.label, reader.ip_address)
+        start_reading(reader.label, reader.ip_address, reader.serial_number or "")
     except LLRPSessionError as e:
         raise HTTPException(status_code=502, detail=str(e))
 

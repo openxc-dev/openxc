@@ -42,11 +42,13 @@ from pyllrp.pyllrp import (
     TagReportContentSelector_Parameter,
 )
 
+from app.tag_stream import record_tag_read
+
 log = logging.getLogger(__name__)
 
 ROSPEC_ID = 123  # Arbitrary but fixed — only one ROSpec is ever active per session.
 INVENTORY_PARAMETER_SPEC_ID = 1234
-MAX_TAG_BUFFER = 500  # Most recent reads kept in memory per reader, for the UI to poll.
+MAX_TAG_BUFFER = 5000  # Most recent reads kept in memory per reader, for the UI to poll.
 
 
 class LLRPSessionError(Exception):
@@ -60,8 +62,10 @@ class ReaderSession:
     thread; the underlying connection is left open across stop()s (so a
     later start() is fast) and only closed by disconnect()."""
 
-    def __init__(self, ip_address: str):
+    def __init__(self, ip_address: str, label: str = "", reader_id: str = ""):
         self.ip_address = ip_address
+        self.label = label
+        self.reader_id = reader_id  # the reader's own serial number, if known
         self.connector = None
         self.reading = False
         self.lock = threading.Lock()
@@ -84,17 +88,38 @@ class ReaderSession:
             read_time = None
             if timestamp_us is not None:
                 try:
-                    read_time = self.connector.tagTimeToComputerTime(timestamp_us)
+                    # tagTimeToComputerTime returns a naive datetime (via
+                    # datetime.utcfromtimestamp) that represents UTC without
+                    # saying so — attach tzinfo explicitly so isoformat()
+                    # produces an unambiguous offset. Without this, a
+                    # timezone-less ISO string gets parsed as *local* time by
+                    # JS's `new Date(...)`, silently shifting it by whatever
+                    # the browser's UTC offset is.
+                    read_time = self.connector.tagTimeToComputerTime(timestamp_us).replace(tzinfo=timezone.utc)
                 except Exception:
                     read_time = datetime.now(timezone.utc)
+
+            antenna_id = tag.get("AntennaID")
+            peak_rssi = tag.get("PeakRSSI")
+            time_iso = read_time.isoformat() if read_time else None
 
             self.tags.append(
                 {
                     "tag": tag_id,
-                    "antenna_id": tag.get("AntennaID"),
-                    "peak_rssi": tag.get("PeakRSSI"),
-                    "time": read_time.isoformat() if read_time else None,
+                    "antenna_id": antenna_id,
+                    "peak_rssi": peak_rssi,
+                    "time": time_iso,
                 }
+            )
+
+            record_tag_read(
+                antenna=antenna_id,
+                rssi=peak_rssi,
+                timestamp=read_time.timestamp() if read_time else None,
+                tag=tag_id,
+                time=time_iso,
+                label=self.label,
+                reader_id=self.reader_id,
             )
 
     def _build_rospec(self, antennas=None):
@@ -221,17 +246,23 @@ _sessions: dict[str, ReaderSession] = {}
 _registry_lock = threading.Lock()
 
 
-def _get_or_create_session(label: str, ip_address: str) -> ReaderSession:
+def _get_or_create_session(label: str, ip_address: str, reader_id: str = "") -> ReaderSession:
     with _registry_lock:
         session = _sessions.get(label)
         if session is None or session.ip_address != ip_address:
-            session = ReaderSession(ip_address)
+            session = ReaderSession(ip_address, label=label, reader_id=reader_id)
             _sessions[label] = session
+        else:
+            # Refresh in case the reader's known serial number changed since
+            # this session was first created (e.g. connected for the first
+            # time after reading had already been started once).
+            session.label = label
+            session.reader_id = reader_id
         return session
 
 
-def start_reading(label: str, ip_address: str) -> None:
-    _get_or_create_session(label, ip_address).start()
+def start_reading(label: str, ip_address: str, reader_id: str = "") -> None:
+    _get_or_create_session(label, ip_address, reader_id).start()
 
 
 def stop_reading(label: str) -> None:
@@ -253,6 +284,11 @@ def is_reading(label: str) -> bool:
     return bool(session and session.reading)
 
 
-def get_recent_tags(label: str) -> list[dict]:
+def get_recent_tags(label: str, clear: bool = False) -> list[dict]:
     session = _sessions.get(label)
-    return list(session.tags) if session else []
+    if not session:
+        return []
+    tags = list(session.tags)
+    if clear:
+        session.tags.clear()
+    return tags

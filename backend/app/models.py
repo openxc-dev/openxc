@@ -103,12 +103,12 @@ class Reader(Base):
     """An LLRP RFID reader registered for finish-line tag acquisition. Not
     meet-scoped — a physical reader is a piece of hardware you plug in and
     reuse across meets, not something that belongs to one. `manufacturer`,
-    `product`, `num_antennas`, and `connected_antennas` are populated from
-    the reader's own capabilities once a real connection is established;
-    they're blank until then. `num_antennas` is the reader's total antenna
-    port count (hardware capability) — `connected_antennas` is which of
-    those ports actually have an antenna plugged in right now, which can be
-    fewer; the two are not the same thing."""
+    `product`, `serial_number`, `num_antennas`, and `connected_antennas` are
+    populated from the reader's own capabilities once a real connection is
+    established; they're blank until then. `num_antennas` is the reader's
+    total antenna port count (hardware capability) — `connected_antennas`
+    is which of those ports actually have an antenna plugged in right now,
+    which can be fewer; the two are not the same thing."""
 
     __tablename__ = "readers"
 
@@ -117,6 +117,7 @@ class Reader(Base):
     ip_address = Column(String(45), nullable=False)
     manufacturer = Column(String(255), nullable=True)
     product = Column(String(255), nullable=True)
+    serial_number = Column(String(255), nullable=True)
     num_antennas = Column(Integer, nullable=True)
     connected_antennas = Column(ARRAY(Integer), nullable=True)
     status = Column(String(20), nullable=False, default=ReaderStatus.DISCONNECTED.value)

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import athletes, finishes, meets, races, readers, results, starts, teams, timing
+from app.routers import athletes, finishes, meets, races, readers, results, starts, tags, teams, timing
 
 app = FastAPI(title="OpenXC Race Timing API", version="1.0.0")
 
@@ -25,6 +25,7 @@ app.include_router(timing.router)
 app.include_router(finishes.router)
 app.include_router(results.router)
 app.include_router(readers.router)
+app.include_router(tags.router)
 
 
 @app.get("/api/health")

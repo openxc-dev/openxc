@@ -94,5 +94,9 @@ export const api = {
 	disconnectReader: (label) => post(`/readers/${label}/disconnect`),
 	startReading: (label) => post(`/readers/${label}/start`),
 	stopReading: (label) => post(`/readers/${label}/stop`),
-	listReaderTags: (label) => get(`/readers/${label}/tags`)
+	listReaderTags: (label) => get(`/readers/${label}/tags`),
+
+	// Tag read stream — spans all readers (Valkey `livestream`), unlike
+	// listReaderTags above which is one reader's own in-memory buffer.
+	listTagStream: (seconds) => get(`/tags?seconds=${seconds}`)
 };

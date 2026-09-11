@@ -14,11 +14,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # Stores a live stream of tag reads (see backend/app/tag_stream.py) for
+  # diagnostics/consumption outside the app itself. Port 6379 is published
+  # to the host specifically so it can be inspected directly, e.g.
+  # `valkey-cli -h localhost XRANGE tag_reads - +`.
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build: ./backend
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      valkey:
         condition: service_healthy
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-openxc}
@@ -26,6 +43,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-openxc}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
+      VALKEY_HOST: valkey
+      VALKEY_PORT: 6379
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     ports:

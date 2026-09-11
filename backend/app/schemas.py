@@ -138,6 +138,7 @@ class Reader(BaseModel):
     ip_address: str
     manufacturer: Optional[str] = None
     product: Optional[str] = None
+    serial_number: Optional[str] = None
     num_antennas: Optional[int] = None
     # Antenna IDs (1-based) currently reporting as plugged in — a subset of
     # 1..num_antennas, not the same thing (num_antennas is total ports,
@@ -163,6 +164,21 @@ class ReaderTag(BaseModel):
 class ReaderTagsResponse(BaseModel):
     reading: bool
     tags: list[ReaderTag]
+
+
+class StreamTagRead(BaseModel):
+    """One entry from the Valkey `livestream` tag-read stream (see
+    app/tag_stream.py) — spans all readers, unlike ReaderTag above which is
+    one reader's own in-memory buffer."""
+    id: str
+    event_type: str
+    tag: str
+    antenna: Optional[int] = None
+    rssi: Optional[int] = None
+    timestamp: Optional[float] = None
+    time: Optional[dt.datetime] = None
+    label: str
+    reader_id: str
 
 
 # ---------- Athlete ----------
