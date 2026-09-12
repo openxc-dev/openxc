@@ -119,12 +119,27 @@
 		await onChanged();
 	}
 
+	// The `autofocus` HTML attribute doesn't reliably steal focus for a
+	// form opened from a button click (or here, a keyboard shortcut right
+	// after a click elsewhere) — Chromium's heuristic declines to move
+	// focus away from whatever the user just interacted with. Focusing
+	// imperatively on mount works regardless.
+	function autofocus(node) {
+		node.focus();
+	}
+
 	function handleKeydown(e) {
-		if (e.key !== 'Escape') return;
-		if (deletingRace) {
-			deletingRace = null;
-		} else if (resettingRace) {
-			resettingRace = null;
+		if (e.key === 'Escape') {
+			if (deletingRace) {
+				deletingRace = null;
+			} else if (resettingRace) {
+				resettingRace = null;
+			}
+			return;
+		}
+		if (e.altKey && e.key.toLowerCase() === 'n') {
+			e.preventDefault();
+			creating = true;
 		}
 	}
 </script>
@@ -145,7 +160,7 @@
 		<div class="grid">
 			<div class="field">
 				<label for="new-race-name">Race name</label>
-				<input id="new-race-name" class="input" bind:value={newRace.name} placeholder="Boys Varsity" />
+				<input id="new-race-name" class="input" bind:value={newRace.name} placeholder="Boys Varsity" use:autofocus />
 			</div>
 			<div class="field">
 				<label for="new-race-distance">Distance</label>

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
@@ -62,12 +64,21 @@ def record_finish(meet_id: str, payload: schemas.FinishCreate, db: Session = Dep
     if not race or race.meet_id != meet_id:
         raise HTTPException(status_code=404, detail="Race not found")
 
+    # The Time Entry tab no longer runs its own stopwatch — it doesn't know
+    # the finish time when it can't yet know which race a scanned bib
+    # belongs to (that's resolved here). When the caller doesn't supply one,
+    # derive it from this race's real start_time, same as the RFID
+    # auto-finish path in app/auto_finish.py.
+    time_seconds = payload.time_seconds
+    if time_seconds is None and race.start_time is not None:
+        time_seconds = (datetime.now(timezone.utc) - race.start_time).total_seconds()
+
     finisher = models.Finisher(
         race_id=race.id,
         athlete_id=athlete.id if athlete else None,
         bib=payload.bib,
         place=next_place(db, race.id),
-        time_seconds=payload.time_seconds,
+        time_seconds=time_seconds,
         status=payload.status,
         is_unknown=athlete is None,
         notes=payload.notes,

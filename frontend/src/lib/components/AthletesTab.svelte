@@ -215,6 +215,14 @@
 	function handleKeydown(e) {
 		if (e.key === 'Escape' && deletingAthlete) {
 			deletingAthlete = null;
+			return;
+		}
+		if (e.altKey && e.key.toLowerCase() === 'n') {
+			e.preventDefault();
+			openCreate();
+		} else if (e.altKey && e.key.toLowerCase() === 'b') {
+			e.preventDefault();
+			showBulk = true;
 		}
 	}
 </script>

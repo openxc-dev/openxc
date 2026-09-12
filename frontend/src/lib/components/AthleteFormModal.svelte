@@ -18,6 +18,15 @@
 	let saving = false;
 	let error = '';
 
+	// The `autofocus` HTML attribute doesn't reliably steal focus here:
+	// this dialog is opened from a button click, and Chromium's autofocus
+	// heuristic deliberately declines to move focus away from an element
+	// the user just interacted with. Focusing imperatively on mount works
+	// regardless of that heuristic.
+	function autofocus(node) {
+		node.focus();
+	}
+
 	async function save() {
 		if (!bib.trim() || !first_name.trim() || !last_name.trim()) {
 			error = 'Bib, first name, and last name are required';
@@ -53,7 +62,7 @@
 		<div class="row">
 			<div class="field">
 				<label for="a-bib">Bib #</label>
-				<input id="a-bib" class="input" bind:value={bib} autofocus />
+				<input id="a-bib" class="input" bind:value={bib} use:autofocus />
 			</div>
 			<div class="field">
 				<label for="a-grade">Grade</label>

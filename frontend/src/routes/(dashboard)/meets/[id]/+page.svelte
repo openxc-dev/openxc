@@ -3,6 +3,8 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { formatDate } from '$lib/format';
+	import { meetsStore } from '$lib/stores';
+	import MeetInfoTab from '$lib/components/MeetInfoTab.svelte';
 	import AthletesTab from '$lib/components/AthletesTab.svelte';
 	import RacesTab from '$lib/components/RacesTab.svelte';
 	import TeamsTab from '$lib/components/TeamsTab.svelte';
@@ -20,9 +22,10 @@
 	let activeTab = 'teams';
 
 	const tabs = [
+		{ id: 'info', label: 'Meet Info' },
 		{ id: 'teams', label: 'Teams' },
-		{ id: 'athletes', label: 'Athletes' },
 		{ id: 'races', label: 'Races' },
+		{ id: 'athletes', label: 'Athletes' },
 		{ id: 'time-entry', label: 'Time Entry' },
 		{ id: 'finish-order', label: 'Finish Order' },
 		{ id: 'results', label: 'Results' }
@@ -48,8 +51,34 @@
 		teams = await api.listTeams(meetId);
 	}
 
+	async function refreshMeet() {
+		meet = await api.getMeet(meetId);
+		await meetsStore.refresh();
+	}
+
 	$: if (meetId) loadAll(meetId);
+
+	const tabShortcuts = {
+		i: 'info',
+		e: 'teams',
+		a: 'athletes',
+		r: 'races',
+		t: 'time-entry',
+		f: 'finish-order',
+		s: 'results'
+	};
+
+	function handleKeydown(e) {
+		if (!e.altKey) return;
+		const tabId = tabShortcuts[e.key.toLowerCase()];
+		if (tabId) {
+			e.preventDefault();
+			activeTab = tabId;
+		}
+	}
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 {#if loading}
 	<div class="empty-state" style="height: 100%;">Loading…</div>
@@ -81,7 +110,9 @@
 		</nav>
 
 		<div class="tab-content">
-			{#if activeTab === 'teams'}
+			{#if activeTab === 'info'}
+				<MeetInfoTab {meetId} {meet} onChanged={refreshMeet} />
+			{:else if activeTab === 'teams'}
 				<TeamsTab {meetId} {teams} onChanged={refreshTeams} />
 			{:else if activeTab === 'athletes'}
 				<AthletesTab {meetId} {races} {teams} />

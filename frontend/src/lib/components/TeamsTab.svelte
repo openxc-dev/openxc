@@ -15,6 +15,14 @@
 	let deletingTeam = null;
 	let saving = false;
 
+	// The `autofocus` HTML attribute doesn't reliably steal focus for a
+	// form opened from a button click or keyboard shortcut — Chromium's
+	// heuristic declines to move focus away from whatever the user just
+	// interacted with. Focusing imperatively on mount works regardless.
+	function autofocus(node) {
+		node.focus();
+	}
+
 	async function createTeam() {
 		const name = newTeamName.trim();
 		if (!name) {
@@ -89,13 +97,22 @@
 	}
 
 	function handleKeydown(e) {
-		if (e.key !== 'Escape') return;
-		if (deletingTeam) {
-			deletingTeam = null;
-		} else if (showBulk) {
-			showBulk = false;
-		} else if (creating) {
-			creating = false;
+		if (e.key === 'Escape') {
+			if (deletingTeam) {
+				deletingTeam = null;
+			} else if (showBulk) {
+				showBulk = false;
+			} else if (creating) {
+				creating = false;
+			}
+			return;
+		}
+		if (e.altKey && e.key.toLowerCase() === 'n') {
+			e.preventDefault();
+			creating = true;
+		} else if (e.altKey && e.key.toLowerCase() === 'b') {
+			e.preventDefault();
+			showBulk = true;
 		}
 	}
 </script>
@@ -123,7 +140,7 @@
 			placeholder="Team name (e.g. Lincoln HS)"
 			bind:value={newTeamName}
 			on:keydown={(e) => e.key === 'Enter' && createTeam()}
-			autofocus
+			use:autofocus
 		/>
 		<button class="btn btn-primary btn-sm" on:click={createTeam} disabled={saving}>Add</button>
 	</div>
@@ -138,6 +155,7 @@
 				class="input"
 				rows="6"
 				bind:value={bulkNames}
+				use:autofocus
 				placeholder={'Lincoln HS\nRoosevelt HS\nJefferson HS'}
 			></textarea>
 		</div>

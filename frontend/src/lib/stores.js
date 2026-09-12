@@ -14,3 +14,17 @@ function createMeetsStore() {
 }
 
 export const meetsStore = createMeetsStore();
+
+function createReadersStore() {
+	const { subscribe, set } = writable([]);
+
+	async function refresh() {
+		const readers = await api.listReaders();
+		set(readers);
+		return readers;
+	}
+
+	return { subscribe, refresh };
+}
+
+export const readersStore = createReadersStore();

@@ -1,7 +1,7 @@
 <script>
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { api } from '../api';
-	import { formatTime } from '../format';
+	import { formatTime, formatClock } from '../format';
 	import FinisherEditModal from './FinisherEditModal.svelte';
 
 	export let meetId;
@@ -19,14 +19,31 @@
 	let manualBib = '';
 	let manualRaceId = '';
 
-	let clockRunning = false;
-	let clockStart = 0;
-	let elapsed = 0;
-	let clockInterval;
-
 	let editingFinisher = null;
 
 	$: raceById = Object.fromEntries(races.map((r) => [r.id, r]));
+
+	// The clock shows real elapsed time for whichever race(s) are currently
+	// started-and-not-finished, driven by each race's own start_time —
+	// there's no operator-run stopwatch anymore, so nothing to forget to
+	// start/stop, and it stays correct even if multiple races overlap.
+	let nowTick = Date.now();
+	const clockInterval = setInterval(() => (nowTick = Date.now()), 1000);
+	onDestroy(() => clearInterval(clockInterval));
+
+	$: activeRaces = races
+		.filter((r) => r.start_time && !r.finish_time)
+		.slice()
+		.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+	function raceElapsedSeconds(race, now) {
+		return (now - new Date(race.start_time).getTime()) / 1000;
+	}
+
+	$: clockDisplay =
+		activeRaces.length === 0
+			? 'No active race'
+			: activeRaces.map((r) => formatClock(raceElapsedSeconds(r, nowTick))).join(' / ');
 
 	async function load() {
 		loading = true;
@@ -41,26 +58,6 @@
 	}
 
 	onMount(load);
-
-	function startClock() {
-		clockStart = performance.now() - elapsed * 1000;
-		clockRunning = true;
-		clockInterval = setInterval(() => {
-			elapsed = (performance.now() - clockStart) / 1000;
-		}, 97);
-	}
-
-	function stopClock() {
-		clockRunning = false;
-		clearInterval(clockInterval);
-	}
-
-	function resetClock() {
-		stopClock();
-		elapsed = 0;
-	}
-
-	onDestroy(() => clearInterval(clockInterval));
 
 	async function scrollToBottom() {
 		await tick();
@@ -96,15 +93,14 @@
 		}
 	}
 
-	function timeForEntry() {
-		return clockRunning || elapsed > 0 ? elapsed : null;
-	}
-
 	async function recordBib() {
 		const bib = bibInput.trim();
 		if (!bib) return;
 		bibInput = '';
-		const ok = await pushFinish({ bib, time_seconds: timeForEntry() });
+		// time_seconds is omitted — the backend derives it from the resolved
+		// race's real start_time, since which race a scanned bib belongs to
+		// isn't known here yet.
+		const ok = await pushFinish({ bib });
 		if (!ok) {
 			// Couldn't auto-resolve a race for this bib — hand it to the
 			// manual panel below so the operator can pick the race in one step.
@@ -121,7 +117,7 @@
 		}
 		const bib = manualBib.trim();
 		manualBib = '';
-		await pushFinish({ bib: bib || null, race_id: manualRaceId, time_seconds: timeForEntry() });
+		await pushFinish({ bib: bib || null, race_id: manualRaceId });
 	}
 
 	async function undoLast() {
@@ -161,13 +157,7 @@
 <div class="entry-layout">
 	<div class="entry-controls card">
 		<div class="clock-row">
-			<span class="clock-display">{formatTime(elapsed)}</span>
-			{#if !clockRunning}
-				<button class="btn btn-sm" on:click={startClock}>Start</button>
-			{:else}
-				<button class="btn btn-sm" on:click={stopClock}>Stop</button>
-			{/if}
-			<button class="btn btn-sm" on:click={resetClock}>Reset</button>
+			<span class="clock-display">{clockDisplay}</span>
 		</div>
 
 		{#if races.length === 0}

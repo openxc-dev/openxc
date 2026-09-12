@@ -1,6 +1,7 @@
 <script>
 	import { onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { readersStore } from '$lib/stores';
 
 	function readerModel(reader) {
 		const parts = [reader.manufacturer, reader.product].filter(Boolean);
@@ -44,7 +45,10 @@
 		});
 	}
 
-	let readers = [];
+	// Backed by a shared store (not local state) so that bulk actions
+	// triggered elsewhere — the sidebar's Start all/Stop all buttons — are
+	// reflected here too, without this page having to poll.
+	$: readers = $readersStore;
 	let loading = true;
 	let loadError = '';
 
@@ -113,7 +117,7 @@
 
 	async function refresh() {
 		try {
-			readers = await api.listReaders();
+			await readersStore.refresh();
 			loadError = '';
 		} catch (e) {
 			loadError = e.message;

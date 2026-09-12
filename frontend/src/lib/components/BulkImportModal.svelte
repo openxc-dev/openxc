@@ -15,6 +15,13 @@
 	let error = '';
 	let preview = [];
 
+	// See AthleteFormModal.svelte: the `autofocus` HTML attribute doesn't
+	// reliably steal focus for a dialog opened from a button click, so
+	// focus imperatively on mount instead.
+	function autofocus(node) {
+		node.focus();
+	}
+
 	$: preview = parse(text);
 
 	function parse(raw) {
@@ -98,6 +105,7 @@
 				class="input mono"
 				rows="8"
 				bind:value={text}
+				use:autofocus
 				placeholder={'101, Ava, Smith, Lincoln HS, 11, Girls Varsity\n102, Liam, Johnson, Roosevelt HS, 12, Boys Varsity'}
 			></textarea>
 		</div>

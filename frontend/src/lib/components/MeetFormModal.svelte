@@ -6,12 +6,31 @@
 	export let onClose = () => {};
 	export let onSaved = () => {};
 
+	// Local date (not UTC) as YYYY-MM-DD, matching the <input type="date">
+	// value format — using toISOString() here would shift the date near
+	// midnight in timezones behind UTC.
+	function todayLocalDate() {
+		const d = new Date();
+		const yyyy = d.getFullYear();
+		const mm = String(d.getMonth() + 1).padStart(2, '0');
+		const dd = String(d.getDate()).padStart(2, '0');
+		return `${yyyy}-${mm}-${dd}`;
+	}
+
 	let name = meet?.name ?? '';
-	let date = meet?.date ?? '';
+	let date = meet?.date ?? (meet ? '' : todayLocalDate());
 	let location = meet?.location ?? '';
 	let notes = meet?.notes ?? '';
 	let saving = false;
 	let error = '';
+
+	// The `autofocus` HTML attribute doesn't reliably steal focus for a
+	// dialog opened from a button click or keyboard shortcut — Chromium's
+	// heuristic declines to move focus away from whatever the user just
+	// interacted with. Focusing imperatively on mount works regardless.
+	function autofocus(node) {
+		node.focus();
+	}
 
 	async function save() {
 		if (!name.trim()) {
@@ -40,7 +59,7 @@
 	<form class="form" on:submit|preventDefault={save}>
 		<div class="field">
 			<label for="meet-name">Meet name</label>
-			<input id="meet-name" class="input" bind:value={name} placeholder="Riverside Invitational" autofocus />
+			<input id="meet-name" class="input" bind:value={name} placeholder="Riverside Invitational" use:autofocus />
 		</div>
 		<div class="field">
 			<label for="meet-date">Date</label>

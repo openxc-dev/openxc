@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { meetsStore } from '$lib/stores';
+	import { meetsStore, readersStore } from '$lib/stores';
 	import { formatDate } from '$lib/format';
 	import { api } from '$lib/api';
 	import MeetFormModal from '$lib/components/MeetFormModal.svelte';
@@ -100,6 +100,11 @@
 	function handleKeydown(e) {
 		if (e.key === 'Escape' && deletingMeet) {
 			deletingMeet = null;
+			return;
+		}
+		if (e.altKey && e.key.toLowerCase() === 'm') {
+			e.preventDefault();
+			openCreate();
 		}
 	}
 
@@ -113,7 +118,7 @@
 		readersActionError = '';
 		startingAllReaders = true;
 		try {
-			const readers = await api.listReaders();
+			const readers = await readersStore.refresh();
 			const connected = readers.filter((r) => r.status === 'connected');
 			const results = await Promise.allSettled(connected.map((r) => api.startReading(r.label)));
 			const failed = results.filter((r) => r.status === 'rejected').length;
@@ -121,6 +126,11 @@
 		} catch (err) {
 			readersActionError = err.message;
 		} finally {
+			// Refreshed again regardless of outcome — the sidebar isn't the
+			// only place reader state is shown (the Readers page's per-row
+			// Start/Stop buttons and "reading" badges read from this same
+			// store), so it needs to pick up whatever actually changed.
+			await readersStore.refresh();
 			startingAllReaders = false;
 		}
 	}
@@ -131,7 +141,7 @@
 		readersActionError = '';
 		stoppingAllReaders = true;
 		try {
-			const readers = await api.listReaders();
+			const readers = await readersStore.refresh();
 			const connected = readers.filter((r) => r.status === 'connected');
 			const results = await Promise.allSettled(connected.map((r) => api.stopReading(r.label)));
 			const failed = results.filter((r) => r.status === 'rejected').length;
@@ -139,6 +149,7 @@
 		} catch (err) {
 			readersActionError = err.message;
 		} finally {
+			await readersStore.refresh();
 			stoppingAllReaders = false;
 		}
 	}
