@@ -445,7 +445,7 @@
 	}
 
 	.icon-btn.danger:hover {
-		color: #fca5a5;
+		color: var(--red);
 	}
 
 	@media (max-width: 900px) {

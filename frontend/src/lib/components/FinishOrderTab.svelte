@@ -237,6 +237,6 @@
 		cursor: not-allowed;
 	}
 	.icon-btn.danger:hover {
-		color: #fca5a5;
+		color: var(--red);
 	}
 </style>

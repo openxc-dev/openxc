@@ -18,11 +18,32 @@
 	--accent: #22c55e;
 	--accent-dim: #16a34a;
 	--accent-soft: rgba(34, 197, 94, 0.12);
+	--accent-text: #4ade80;
 	--blue: #3b82f6;
 	--amber: #f59e0b;
 	--red: #ef4444;
 	--radius: 8px;
 	--font: 'Blinker', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Light mode: black on white, with the same green accent hue kept as-is.
+   Only surface/text tones and the status colors (which were tuned as pale
+   tints for a dark card background) are swapped for readable counterparts
+   on white — --accent/--accent-dim/--accent-soft are intentionally
+   untouched here. */
+[data-theme='light'] {
+	--bg: #ffffff;
+	--bg-elevated: #f5f6f8;
+	--bg-card: #ffffff;
+	--bg-hover: #eef0f3;
+	--border: #dde1e7;
+	--text: #0a0e14;
+	--text-muted: #6b7280;
+	--text-faint: #9aa1b0;
+	--accent-text: #15803d;
+	--blue: #2563eb;
+	--amber: #b45309;
+	--red: #dc2626;
 }
 
 * {

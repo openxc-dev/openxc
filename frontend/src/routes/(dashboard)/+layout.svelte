@@ -5,6 +5,7 @@
 	import { meetsStore, readersStore } from '$lib/stores';
 	import { formatDate } from '$lib/format';
 	import { api } from '$lib/api';
+	import { theme, toggleTheme } from '$lib/theme';
 	import MeetFormModal from '$lib/components/MeetFormModal.svelte';
 
 	export let data;
@@ -193,9 +194,19 @@
 		<div class="shell">
 			<aside class="sidebar scrollbar-thin">
 				<div class="sidebar-header">
-					<div class="brand">
-						<span class="brand-dot"></span>
-						OpenXC Timing
+					<div class="brand-row">
+						<div class="brand">
+							<span class="brand-dot"></span>
+							OpenXC Timing
+						</div>
+						<button
+							class="theme-toggle-btn"
+							on:click={toggleTheme}
+							title="Switch to {$theme === 'dark' ? 'light' : 'dark'} mode"
+							aria-label="Toggle dark/light mode"
+						>
+							{$theme === 'dark' ? '🌙' : '☀️'}
+						</button>
 					</div>
 					<button class="btn btn-primary btn-sm" on:click={openCreate}>+ New Meet</button>
 				</div>
@@ -343,7 +354,7 @@
 		padding: 8px 16px;
 		background: rgba(245, 158, 11, 0.15);
 		border-bottom: 1px solid rgba(245, 158, 11, 0.4);
-		color: #fbbf24;
+		color: var(--amber);
 		font-size: 12.5px;
 		text-align: center;
 	}
@@ -376,6 +387,13 @@
 		z-index: 1;
 	}
 
+	.brand-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+
 	.brand {
 		display: flex;
 		align-items: center;
@@ -383,6 +401,25 @@
 		font-weight: 700;
 		font-size: 15px;
 		letter-spacing: -0.01em;
+	}
+
+	.theme-toggle-btn {
+		background: none;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 13px;
+		flex-shrink: 0;
+		line-height: 1;
+	}
+
+	.theme-toggle-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--accent);
 	}
 
 	.brand-dot {
@@ -419,7 +456,7 @@
 	}
 
 	.meet-item.active .meet-name {
-		color: #4ade80;
+		color: var(--accent-text);
 	}
 
 	.meet-item-main {
@@ -523,7 +560,7 @@
 		border-radius: 8px;
 		background: rgba(239, 68, 68, 0.1);
 		border: 1px solid rgba(239, 68, 68, 0.3);
-		color: #fca5a5;
+		color: var(--red);
 		font-size: 12px;
 	}
 
@@ -542,7 +579,7 @@
 	}
 
 	.icon-btn.danger:hover {
-		color: #fca5a5;
+		color: var(--red);
 	}
 
 	.empty-sidebar {

@@ -164,7 +164,7 @@
 		padding: 0 5px;
 		border-radius: 6px;
 		background: var(--accent-soft);
-		color: #4ade80;
+		color: var(--accent-text);
 		font-size: 12px;
 		font-weight: 700;
 	}

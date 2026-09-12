@@ -580,7 +580,7 @@
 	.antenna-badge.present {
 		background: var(--accent-soft);
 		border-color: rgba(34, 197, 94, 0.35);
-		color: #4ade80;
+		color: var(--accent-text);
 	}
 
 	/* Wins over .present when both apply — a "just triggered" antenna

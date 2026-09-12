@@ -4,6 +4,17 @@
 		<meta charset="utf-8" />
 		<link rel="icon" type="image/png" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// Applied before first paint so a light-mode preference doesn't
+			// flash dark (the default) for a frame on load.
+			(function () {
+				try {
+					if (localStorage.getItem('theme') === 'light') {
+						document.documentElement.dataset.theme = 'light';
+					}
+				} catch (e) {}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

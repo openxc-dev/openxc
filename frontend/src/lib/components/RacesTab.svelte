@@ -406,13 +406,13 @@
 	.status-started {
 		background: rgba(34, 197, 94, 0.15);
 		border-color: rgba(34, 197, 94, 0.4);
-		color: #4ade80;
+		color: var(--accent-text);
 	}
 
 	.status-finished {
 		background: rgba(59, 130, 246, 0.15);
 		border-color: rgba(59, 130, 246, 0.4);
-		color: #60a5fa;
+		color: var(--blue);
 	}
 
 	.finish-toggle {
